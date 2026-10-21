@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { getCategories } from "@/lib/api";
+import { Logo } from "./Logo";
 import { SearchBar } from "./SearchBar";
 
 export async function Header() {
@@ -8,8 +9,8 @@ export async function Header() {
   return (
     <header className="border-b border-gray-200 bg-white">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
-        <Link href="/" className="text-xl font-extrabold tracking-tight text-gray-900">
-          Boxing<span className="text-red-600">Everything</span>
+        <Link href="/" aria-label="복싱의모든것 홈" className="shrink-0">
+          <Logo />
         </Link>
         <div className="order-3 w-full md:order-none md:max-w-md md:flex-1">
           <Suspense fallback={<div className="h-[38px]" />}>

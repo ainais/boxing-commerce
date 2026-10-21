@@ -19,7 +19,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const product = await getProduct((await params).id);
-  return { title: product ? `${product.name} - BoxingEverything` : "상품을 찾을 수 없음" };
+  return { title: product ? `${product.name} - 복싱의모든것` : "상품을 찾을 수 없음" };
 }
 
 export default function ProductDetailPage({ params }: { params: Params }) {

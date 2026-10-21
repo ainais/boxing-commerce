@@ -4,7 +4,7 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 
 export const metadata: Metadata = {
-  title: "BoxingEverything - 복싱용품 최저가 비교",
+  title: "복싱의모든것 - 복싱용품 최저가 비교",
   description: "글러브, 헤드기어, 핸드랩 등 복싱용품 판매처별 가격을 한눈에 비교하세요.",
 };
 
