@@ -19,7 +19,11 @@
 1. `config/application-dev.example.yml`을 같은 폴더의 `application-dev.yml`로 복사해 DB 접속 정보를 채웁니다.
 2. `apps/api`에서 `./gradlew bootRun --args='--spring.profiles.active=dev'`
 
-JDK 21이 설치되어 있어야 합니다. Swagger UI는 `/swagger-ui.html`입니다.
+JDK 21이 설치되어 있어야 합니다.
+
+- 서버 기본 포트는 8080입니다.
+- health 확인: http://localhost:8080/api/health
+- Swagger UI: http://localhost:8080/swagger-ui/index.html
 
 ## 현재 상태
 
