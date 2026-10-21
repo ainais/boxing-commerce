@@ -1,0 +1,24 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# environment variables
+.env
+.env.*
+!.env.example
+
+# Java / Spring Boot (apps/api)
+build/
+.gradle/
+target/
+out/
+*.class
+*.log
+HELP.md
+
+# misc
+*.tsbuildinfo
+.next-verify/
