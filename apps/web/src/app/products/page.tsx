@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { getBrands, getCategories, getProducts } from "@/lib/api";
 import { PAGE_SIZE, buildProductHref, parseProductQuery } from "@/lib/productQuery";
@@ -7,7 +8,7 @@ import { Pagination } from "@/components/Pagination";
 import { ProductGrid } from "@/components/ProductGrid";
 import { SortSelect } from "@/components/SortSelect";
 
-export const metadata = { title: "상품 목록 - BoxingEverything" };
+export const metadata = { title: "상품 목록 - 복싱의모든것" };
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -53,8 +54,15 @@ async function ProductsContent({
         </div>
 
         {items.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white py-16 text-center">
-            <p className="font-medium text-gray-900">조건에 맞는 상품이 없습니다.</p>
+          <div className="flex flex-col items-center rounded-lg border border-gray-200 bg-white py-12 text-center">
+            <Image
+              src="/brand/mascot.png"
+              alt="복싱 글러브를 낀 고양이 마스코트"
+              width={160}
+              height={160}
+              className="mb-3 h-auto w-40"
+            />
+            <p className="font-medium text-gray-900">조건에 맞는 상품이 없어요</p>
             <p className="mt-1 text-sm text-gray-500">검색어나 필터를 바꿔 보세요.</p>
             <Link
               href={buildProductHref({})}
