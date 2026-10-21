@@ -22,3 +22,15 @@ HELP.md
 # misc
 *.tsbuildinfo
 .next-verify/
+
+# api 프로파일별 접속 정보 (example만 추적)
+apps/api/config/application-*.yml
+!apps/api/config/application-*.example.yml
+
+# api IDE 산출물
+apps/api/bin/
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/

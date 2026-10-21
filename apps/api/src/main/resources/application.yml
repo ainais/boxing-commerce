@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    # 접속 정보는 환경변수(DB_URL, DB_USERNAME, DB_PASSWORD) 또는 dev 프로파일의 config/application-dev.yml(git 제외)에서만 읽는다. prod는 환경변수만 쓴다
+    url: ${DB_URL:}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 0
+      connection-timeout: 30000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          # DB 시각은 timestamptz(절대 시각)로 저장되며 이 값은 JDBC 변환 기준이다
+          time_zone: Asia/Seoul
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

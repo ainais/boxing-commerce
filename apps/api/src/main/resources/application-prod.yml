@@ -1,0 +1,7 @@
+# 운영 접속 정보는 호스팅 환경변수로만 주입하고 이 파일에는 넣지 않는다.
+# DB 접속은 application.yml이 읽는 환경변수 DB_URL, DB_USERNAME, DB_PASSWORD를 그대로 쓴다.
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}

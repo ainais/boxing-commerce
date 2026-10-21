@@ -1,0 +1,19 @@
+# dev 프로파일용 DB 접속 설정 (Spring Boot가 작업 디렉터리의 ./config/ 를 자동으로 읽는다)
+# src/main/resources/application-dev.yml(추적됨, dev 전용 설정)과 합쳐지며 이 파일이 우선한다.
+#
+# 사용법:
+#   1) 이 파일을 같은 폴더(apps/api/config/)에 application-dev.yml 로 복사한다
+#      (application-dev.yml 은 git에서 무시된다)
+#   2) 아래 placeholder를 실제 값으로 바꾼다
+#   3) apps/api 에서 ./gradlew bootRun --args='--spring.profiles.active=dev'
+#
+# 접속 주소:
+#   - JDBC 형식(jdbc:postgresql://...)으로 쓴다. postgresql:// 형식을 그대로 쓰면 안 된다.
+#   - 커넥션 풀러가 아닌 direct 호스트 주소를 쓴다.
+#
+# 배포(prod) 환경은 이 파일 대신 환경변수 DB_URL, DB_USERNAME, DB_PASSWORD를 쓴다.
+spring:
+  datasource:
+    url: jdbc:postgresql://<HOST>/<DB>?sslmode=require
+    username: <USER>
+    password: <PASSWORD>
