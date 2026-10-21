@@ -5,3 +5,7 @@ springdoc:
     enabled: ${SWAGGER_ENABLED:false}
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
+app:
+  cors:
+    # 허용 origin은 환경변수로만 받는다(쉼표 구분). 기본값은 비어 있어 허용 없음
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
