@@ -4,8 +4,9 @@
 
 ## 범위
 
-- **1차 구현 테이블**: `category`, `brand`, `product`, `seller`, `offer`, `price_history`, `click_log`
-- **크롤링 수집 단계에서 추가 예정**: `crawl_run`, `raw_listing`
+- **V1 구현 테이블**: `category`, `brand`, `product`, `seller`, `offer`, `price_history`, `click_log`
+- **V2 구현 테이블**: `crawl_run`, `raw_listing` (크롤링 수집 결과를 받는 테이블)
+- **V2 기초 데이터**: `seller`(`goldenchamps`), `category` 7종(`shoes` 포함)
 
 ## ERD
 
@@ -70,20 +71,22 @@ erDiagram
         timestamptz started_at
         timestamptz finished_at
         varchar status "RUNNING, SUCCESS, FAILED"
-        int items_found
+        int items_found "0 이상"
+        varchar error_message "nullable"
     }
     RAW_LISTING {
         bigint id PK
         bigint crawl_run_id FK
         bigint product_id FK "nullable"
-        varchar external_id
+        varchar external_id "crawl_run_id와 unique"
         varchar title
-        int price
-        int shipping_fee
+        int price "KRW"
+        int shipping_fee "KRW"
         varchar url
         jsonb payload
         varchar match_status "UNMATCHED, AUTO, MANUAL"
-        numeric match_score
+        numeric match_score "nullable"
+        varchar unmatched_reason "nullable"
     }
     CLICK_LOG {
         bigint id PK
@@ -94,7 +97,7 @@ erDiagram
     }
 ```
 
-> 다이어그램의 `varchar`는 길이를 생략한 표기입니다. 실제 길이와 NOT NULL 여부는 `V1__create_core_tables.sql`이 기준입니다. 모든 PK는 `bigint GENERATED ALWAYS AS IDENTITY`입니다.
+> 다이어그램의 `varchar`는 길이를 생략한 표기입니다. 실제 길이와 NOT NULL 여부는 `V1__create_core_tables.sql`, `V2__create_crawl_tables.sql`이 기준입니다. 모든 PK는 `bigint GENERATED ALWAYS AS IDENTITY`입니다.
 
 ## 설계 결정
 
@@ -106,11 +109,15 @@ erDiagram
 - **금액은 KRW 정수(int)로 저장**하고 `price`, `shipping_fee`에 `CHECK (>= 0)`를 둡니다. `shipping_fee`는 `NOT NULL DEFAULT 0`입니다.
 - **FK 삭제 정책은 NO ACTION(기본값)**: 삭제 정책은 아직 정하지 않았습니다. 부모 행을 지우려면 자식 행을 먼저 지워야 합니다.
 - **기본값**: `category.sort_order`는 `NOT NULL DEFAULT 0`, `offer.last_seen_at`은 `NOT NULL DEFAULT now()`입니다. `offer.in_stock`, `seller.active`는 `NOT NULL DEFAULT true`입니다.
-- **NULL 허용 컬럼**: `product.image_url`(이미지가 없을 수 있음), `click_log.referrer`(리퍼러가 없는 유입), `click_log.visitor_hash`(식별값을 만들지 못한 경우)입니다.
+- **NULL 허용 컬럼**: `product.image_url`(이미지가 없을 수 있음), `click_log.referrer`(리퍼러가 없는 유입), `click_log.visitor_hash`(식별값을 만들지 못한 경우), `crawl_run.finished_at`(실행 중), `crawl_run.error_message`(실패했을 때만), `raw_listing.product_id`(아직 매칭 전), `raw_listing.match_score`, `raw_listing.unmatched_reason`입니다.
+- **raw_listing은 크롤링마다 쌓이는 스냅샷**: 같은 상품도 실행(`crawl_run`)마다 새 행이 생기며 `(crawl_run_id, external_id)`만 unique입니다. 30일이 지난 행은 정리 대상입니다.
+- **승격은 crawler가 수행**: raw_listing을 product/offer로 승격(생성)하는 일은 crawler가 맡습니다. 스키마 변경은 apps/api의 Flyway만 합니다.
+- **price_history는 offer의 가격·배송비·재고가 바뀔 때만 적재**: 값이 그대로면 재수집해도 행을 만들지 않습니다.
+- **기초 데이터는 멱등하게 넣음**: V2의 `seller`, `category` 삽입은 `ON CONFLICT DO NOTHING`이며, dev 시드(`R__seed_demo_data.sql`)도 같은 방식이라 순서와 무관하게 충돌하지 않습니다.
 
 ## 인덱스와 제약
 
-V1에 있는 것:
+V1 (`V1__create_core_tables.sql`):
 
 | 종류 | 이름 | 대상 |
 | --- | --- | --- |
@@ -130,7 +137,18 @@ V1에 있는 것:
 
 FK 제약은 `fk_<테이블>_<참조 대상>` 형식입니다 (`fk_product_category`, `fk_product_brand`, `fk_offer_product`, `fk_offer_seller`, `fk_price_history_offer`, `fk_click_log_offer`).
 
-크롤링 단계에서 추가 예정 (V1에 없음):
+V2 (`V2__create_crawl_tables.sql`):
 
-- `raw_listing(match_status)`
-- `crawl_run`, `raw_listing` 테이블의 FK와 기타 제약
+| 종류 | 이름 | 대상 |
+| --- | --- | --- |
+| Unique | `uq_raw_listing_run_external` | `raw_listing(crawl_run_id, external_id)` |
+| CHECK | `ck_crawl_run_status` | `crawl_run.status IN ('RUNNING', 'SUCCESS', 'FAILED')` |
+| CHECK | `ck_crawl_run_items_found` | `crawl_run.items_found >= 0` |
+| CHECK | `ck_raw_listing_price` | `raw_listing.price >= 0` |
+| CHECK | `ck_raw_listing_shipping_fee` | `raw_listing.shipping_fee >= 0` |
+| CHECK | `ck_raw_listing_match_status` | `raw_listing.match_status IN ('UNMATCHED', 'AUTO', 'MANUAL')` |
+| Index | `idx_crawl_run_seller_started` | `crawl_run(seller_id, started_at)` |
+| Index | `idx_raw_listing_match_status` | `raw_listing(match_status)` |
+| Index | `idx_raw_listing_product` | `raw_listing(product_id) WHERE product_id IS NOT NULL` — 부분 인덱스 |
+
+V2의 FK 제약은 `fk_crawl_run_seller`, `fk_raw_listing_crawl_run`, `fk_raw_listing_product`입니다.

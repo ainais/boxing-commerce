@@ -1,0 +1,72 @@
+// 골든챔스 수집 정기 실행. 필요한 Credentials: boxing-db-password (Secret text)
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    triggers {
+        cron('H 6 * * *')
+    }
+
+    // 비밀이 아닌 값만 둔다. DB 비밀번호는 Crawl 단계에서 Credentials로 주입한다.
+    environment {
+        CRAWLER_DB_HOST = 'pg-local'
+        CRAWLER_DB_PORT = '5432'
+        CRAWLER_DB_NAME = 'boxing_commerce'
+        CRAWLER_DB_USER = 'boxing'
+        GOLDENCHAMPS_SHIPPING_FEE = '0'
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                dir('apps/crawler') {
+                    sh 'uv sync --frozen'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                // 네트워크·DB를 쓰지 않는 단위 테스트만 실행된다
+                dir('apps/crawler') {
+                    sh 'uv run pytest -q'
+                }
+            }
+        }
+
+        stage('Crawl') {
+            steps {
+                dir('apps/crawler') {
+                    withCredentials([string(credentialsId: 'boxing-db-password', variable: 'CRAWLER_DB_PASSWORD')]) {
+                        script {
+                            // 첫 줄의 shebang(-e)으로 sh의 기본 -x(명령 echo)를 끈다
+                            def rc = sh(
+                                returnStatus: true,
+                                script: '#!/bin/sh -e\nuv run python -m crawler --shop goldenchamps --save'
+                            )
+                            if (rc == 0) {
+                                echo '수집 성공'
+                            } else if (rc == 2) {
+                                unstable('다른 수집이 이미 실행 중')
+                            } else {
+                                error("수집 실패: 종료 코드 ${rc}")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // .venv는 정리하지 않고 다음 실행에서 재사용한다
+    post {
+        failure {
+            echo '수집 파이프라인 실패: 콘솔 로그와 crawl_run 테이블의 error_message를 확인하세요.'
+        }
+    }
+}
