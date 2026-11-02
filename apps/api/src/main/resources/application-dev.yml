@@ -7,4 +7,4 @@ app:
   cors:
     # 로컬 프론트(Next.js dev 서버)만 허용
     allowed-origins:
-      - http://localhost:3000
+      - http://localhost:4000

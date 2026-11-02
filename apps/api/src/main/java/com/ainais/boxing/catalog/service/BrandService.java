@@ -16,7 +16,7 @@ public class BrandService {
         this.brandRepository = brandRepository;
     }
 
-    /** category가 없으면 전체 브랜드, 있으면 그 카테고리에 상품이 있는 브랜드 (이름순) */
+    /** category가 없으면 전체 브랜드, 있으면 그 카테고리의 브랜드 (이름순). 둘 다 재고 있는 offer가 있는 상품의 브랜드만 */
     public List<String> findNames(String categorySlug) {
         if (categorySlug == null || categorySlug.isBlank()) {
             return brandRepository.findAllNames();

@@ -29,7 +29,7 @@ export function FilterPanel({ query, categories, brands }: Props) {
       buildProductHref({
         q: query.q,
         sort: query.sort,
-        category: (category || undefined) as ProductQuery["category"],
+        category: category || undefined,
         brands: fd.getAll("brand").map(String),
         minPrice: price("minPrice"),
         maxPrice: price("maxPrice"),

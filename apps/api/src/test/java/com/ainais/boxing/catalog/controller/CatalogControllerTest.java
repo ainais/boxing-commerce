@@ -47,7 +47,7 @@ class CatalogControllerTest {
 
     private static ProductSummaryResponse summary(long id) {
         return new ProductSummaryResponse(id, "프로 스파링 글러브", "Everlast", "gloves", "글러브", null,
-                87500, new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01"), 3);
+                87500, new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01", true), 3);
     }
 
     @Test
@@ -150,22 +150,40 @@ class CatalogControllerTest {
 
     @Test
     void detailReturnsOffersAndPriceHistory() throws Exception {
-        OfferResponse lowest = new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01");
+        OfferResponse lowest = new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01", true);
         when(productService.getDetail(1L)).thenReturn(new ProductDetailResponse(
-                1L, "프로 스파링 글러브", "Everlast", "gloves", "글러브", null, 87500, lowest,
-                List.of(lowest, new OfferResponse(10L, "Coupang", 89000, 0, "https://example.com/coupang/p01")),
+                1L, "프로 스파링 글러브", "Everlast", "gloves", "글러브", null, true, 87500, lowest,
+                List.of(lowest, new OfferResponse(10L, "Coupang", 89000, 0, "https://example.com/coupang/p01", true)),
                 List.of(new PricePointResponse(1, 91000), new PricePointResponse(0, 87500))));
 
         mockMvc.perform(get("/api/products/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.inStock").value(true))
                 .andExpect(jsonPath("$.lowestPrice").value(87500))
                 .andExpect(jsonPath("$.lowestOffer.id").value(11))
+                .andExpect(jsonPath("$.offers[0].inStock").value(true))
                 .andExpect(jsonPath("$.offers[0].seller").value("11st"))
                 .andExpect(jsonPath("$.offers[1].seller").value("Coupang"))
                 .andExpect(jsonPath("$.priceHistory[0].daysAgo").value(1))
                 .andExpect(jsonPath("$.priceHistory[1].daysAgo").value(0))
                 .andExpect(jsonPath("$.priceHistory[1].price").value(87500));
+    }
+
+    @Test
+    void detailReturnsNullLowestWhenAllOffersSoldOut() throws Exception {
+        OfferResponse soldOut = new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01", false);
+        when(productService.getDetail(1L)).thenReturn(new ProductDetailResponse(
+                1L, "프로 스파링 글러브", "Everlast", "gloves", "글러브", null, false, null, null,
+                List.of(soldOut), List.of()));
+
+        mockMvc.perform(get("/api/products/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.inStock").value(false))
+                .andExpect(jsonPath("$.lowestPrice").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.lowestOffer").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.offers[0].inStock").value(false))
+                .andExpect(jsonPath("$.priceHistory.length()").value(0));
     }
 
     @Test

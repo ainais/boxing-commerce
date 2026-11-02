@@ -77,8 +77,8 @@ class ProductServiceTest {
 
     @Test
     void detailComposesLowestOfferAndDailyHistoryEndingAtCurrentLowest() {
-        OfferResponse lowest = new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01");
-        OfferResponse other = new OfferResponse(10L, "Coupang", 89000, 0, "https://example.com/coupang/p01");
+        OfferResponse lowest = new OfferResponse(11L, "11st", 87500, 3500, "https://example.com/11st/p01", true);
+        OfferResponse other = new OfferResponse(10L, "Coupang", 89000, 0, "https://example.com/coupang/p01", true);
         when(productRepository.findHeadById(1L)).thenReturn(Optional.of(HEAD));
         when(offerRepository.findByProductIdOrdered(1L)).thenReturn(List.of(lowest, other));
         when(priceHistoryRepository.findRowsSince(eq(1L), eq(Instant.parse("2026-09-21T15:00:00Z"))))
@@ -86,11 +86,45 @@ class ProductServiceTest {
 
         ProductDetailResponse detail = service.getDetail(1L);
 
+        assertThat(detail.inStock()).isTrue();
         assertThat(detail.lowestOffer()).isEqualTo(lowest);
         assertThat(detail.lowestPrice()).isEqualTo(87500);
         assertThat(detail.offers()).containsExactly(lowest, other);
         assertThat(detail.priceHistory())
                 .containsExactly(new PricePointResponse(1, 91000), new PricePointResponse(0, 87500));
+    }
+
+    @Test
+    void detailLowestIgnoresSoldOutOffersAndHistoryUsesInStockRows() {
+        OfferResponse inStock = new OfferResponse(10L, "Coupang", 89000, 0, "https://example.com/coupang/p01", true);
+        OfferResponse soldOut = new OfferResponse(11L, "11st", 70000, 0, "https://example.com/11st/p01", false);
+        when(productRepository.findHeadById(1L)).thenReturn(Optional.of(HEAD));
+        when(offerRepository.findByProductIdOrdered(1L)).thenReturn(List.of(inStock, soldOut));
+        when(priceHistoryRepository.findRowsSince(eq(1L), any())).thenReturn(List.of());
+
+        ProductDetailResponse detail = service.getDetail(1L);
+
+        assertThat(detail.inStock()).isTrue();
+        assertThat(detail.lowestOffer()).isEqualTo(inStock);
+        assertThat(detail.lowestPrice()).isEqualTo(89000);
+        assertThat(detail.offers()).containsExactly(inStock, soldOut);
+        assertThat(detail.priceHistory()).containsExactly(new PricePointResponse(0, 89000));
+    }
+
+    @Test
+    void detailIsOkWithNullLowestAndEmptyHistoryWhenAllOffersSoldOut() {
+        OfferResponse soldOut = new OfferResponse(11L, "11st", 70000, 0, "https://example.com/11st/p01", false);
+        when(productRepository.findHeadById(1L)).thenReturn(Optional.of(HEAD));
+        when(offerRepository.findByProductIdOrdered(1L)).thenReturn(List.of(soldOut));
+
+        ProductDetailResponse detail = service.getDetail(1L);
+
+        assertThat(detail.inStock()).isFalse();
+        assertThat(detail.lowestPrice()).isNull();
+        assertThat(detail.lowestOffer()).isNull();
+        assertThat(detail.offers()).containsExactly(soldOut);
+        assertThat(detail.priceHistory()).isEmpty();
+        verify(priceHistoryRepository, never()).findRowsSince(any(), any());
     }
 
     @Test

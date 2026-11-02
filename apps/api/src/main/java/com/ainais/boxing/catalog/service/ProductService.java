@@ -61,7 +61,7 @@ public class ProductService {
         return new PageResponse<>(items, total, criteria.page(), criteria.size());
     }
 
-    /** 쿼리 3개: 상품 기본 정보, offers, 가격 기록 */
+    /** 쿼리 3개: 상품 기본 정보, offers, 가격 기록(재고 있는 offer가 있을 때만) */
     public ProductDetailResponse getDetail(Long id) {
         ProductHead head = productRepository.findHeadById(id)
                 .orElseThrow(() -> ApiException.notFound("상품을 찾을 수 없습니다. id=" + id));
@@ -69,16 +69,21 @@ public class ProductService {
         if (offers.isEmpty()) {
             throw ApiException.notFound("판매처 정보가 없는 상품입니다. id=" + id);
         }
-        OfferResponse lowestOffer = offers.get(0);
+        // offers는 재고 있는 offer가 먼저 오므로 첫 offer가 재고 없으면 전부 품절이다
+        OfferResponse lowestOffer = offers.get(0).inStock() ? offers.get(0) : null;
 
-        Instant now = clock.instant();
-        List<PriceRow> rows = priceHistoryRepository.findRowsSince(id, PriceHistoryCalculator.windowStart(now, ZONE));
-        List<PricePointResponse> history =
-                PriceHistoryCalculator.dailyLowest(rows, lowestOffer.price(), now, ZONE);
+        List<PricePointResponse> history = List.of();
+        if (lowestOffer != null) {
+            Instant now = clock.instant();
+            List<PriceRow> rows =
+                    priceHistoryRepository.findRowsSince(id, PriceHistoryCalculator.windowStart(now, ZONE));
+            history = PriceHistoryCalculator.dailyLowest(rows, lowestOffer.price(), now, ZONE);
+        }
 
         return new ProductDetailResponse(
                 head.id(), head.name(), head.brand(), head.categorySlug(), head.categoryName(),
-                head.imageUrl(), lowestOffer.price(), lowestOffer, offers, history);
+                head.imageUrl(), lowestOffer != null, lowestOffer == null ? null : lowestOffer.price(),
+                lowestOffer, offers, history);
     }
 
     /** 같은 카테고리의 다른 상품 (popular 규칙). 쿼리 3개: 기본 정보, count, 목록 */

@@ -15,7 +15,7 @@ import java.util.Map;
 /**
  * 상품 목록 조회 (네이티브 SQL, DTO projection).
  * 최저가·offer 수는 offer 집계 서브쿼리로, 최저가 offer는 LATERAL 서브쿼리로 한 번에 가져와 N+1을 피한다.
- * 쿼리는 총 2개(count, 목록)이다. offer가 하나도 없는 상품은 목록에서 제외된다.
+ * 쿼리는 총 2개(count, 목록)이다. 재고 있는(in_stock = true) offer가 하나도 없는 상품은 목록에서 제외된다.
  */
 @Repository
 public class ProductQueryRepository {
@@ -25,13 +25,13 @@ public class ProductQueryRepository {
             JOIN category c ON c.id = p.category_id
             JOIN brand b ON b.id = p.brand_id
             JOIN (SELECT product_id, MIN(price) AS lowest_price, COUNT(*) AS offer_count
-                  FROM offer GROUP BY product_id) agg ON agg.product_id = p.id
+                  FROM offer WHERE in_stock GROUP BY product_id) agg ON agg.product_id = p.id
             """;
 
     private static final String LOWEST_OFFER_JOIN = """
             JOIN LATERAL (SELECT o.id, o.seller_id, o.price, o.shipping_fee, o.url
                           FROM offer o
-                          WHERE o.product_id = p.id
+                          WHERE o.product_id = p.id AND o.in_stock
                           ORDER BY o.price, o.shipping_fee, o.id
                           LIMIT 1) lo ON TRUE
             JOIN seller s ON s.id = lo.seller_id
@@ -96,7 +96,8 @@ public class ProductQueryRepository {
                                 rs.getString("seller_name"),
                                 rs.getInt("offer_price"),
                                 rs.getInt("offer_shipping_fee"),
-                                rs.getString("offer_url")),
+                                rs.getString("offer_url"),
+                                true),
                         rs.getInt("offer_count")))
                 .list();
     }

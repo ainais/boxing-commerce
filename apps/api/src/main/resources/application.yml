@@ -1,3 +1,6 @@
+server:
+  port: 4001
+
 spring:
   datasource:
     # 접속 정보는 환경변수(DB_URL, DB_USERNAME, DB_PASSWORD) 또는 dev 프로파일의 config/application-dev.yml(git 제외)에서만 읽는다. prod는 환경변수만 쓴다

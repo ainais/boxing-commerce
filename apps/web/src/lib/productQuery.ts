@@ -1,10 +1,9 @@
-import type { CategorySlug } from "@/lib/types";
 import type { ProductSort } from "@/lib/api";
 
-/** /products URL searchParams <-> 목록 상태 변환 (서버/클라이언트 공용) */
+/** /products URL searchParams <-> 목록 상태 변환 (서버/클라이언트 공용). API 파라미터와 1:1로 대응한다. */
 export interface ProductQuery {
   q: string;
-  category?: CategorySlug;
+  category?: string;
   brands: string[];
   minPrice?: number;
   maxPrice?: number;
@@ -18,6 +17,7 @@ export const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
   { value: "lowestPrice", label: "최저가 낮은 순" },
   { value: "priceDesc", label: "최저가 높은 순" },
   { value: "name", label: "상품명 순" },
+  { value: "popular", label: "인기순" },
 ];
 
 type RawParams = Record<string, string | string[] | undefined>;
@@ -38,7 +38,7 @@ export function parseProductQuery(raw: RawParams, validCategories: string[]): Pr
   const brand = raw.brand;
   return {
     q: (first(raw.q) ?? "").trim(),
-    category: category && validCategories.includes(category) ? (category as CategorySlug) : undefined,
+    category: category && validCategories.includes(category) ? category : undefined,
     brands: (Array.isArray(brand) ? brand : brand ? [brand] : []).filter(Boolean),
     minPrice: toPrice(raw.minPrice),
     maxPrice: toPrice(raw.maxPrice),

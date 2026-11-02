@@ -78,9 +78,9 @@ JDK 21이 필요합니다.
 ./gradlew bootRun --args='--spring.profiles.active=dev'
 ```
 
-- 서버 기본 포트는 8080입니다.
-- health 확인: http://localhost:8080/api/health
-- Swagger UI: http://localhost:8080/swagger-ui/index.html
+- 서버 기본 포트는 4001입니다.
+- health 확인: http://localhost:4001/api/health
+- Swagger UI: http://localhost:4001/swagger-ui/index.html
 
 배포(prod)는 환경변수 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 접속 정보를 주입합니다.
 

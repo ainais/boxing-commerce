@@ -10,13 +10,13 @@ import java.util.List;
 
 public interface OfferRepository extends JpaRepository<Offer, Long> {
 
-    /** 가격 낮은 순, 같으면 배송비 낮은 순 (최종 동점은 id) */
+    /** 재고 있는 offer 먼저, 각각 가격 낮은 순, 같으면 배송비 낮은 순 (최종 동점은 id) */
     @Query("""
-            select new com.ainais.boxing.catalog.dto.OfferResponse(o.id, s.name, o.price, o.shippingFee, o.url)
+            select new com.ainais.boxing.catalog.dto.OfferResponse(o.id, s.name, o.price, o.shippingFee, o.url, o.inStock)
             from Offer o
             join o.seller s
             where o.product.id = :productId
-            order by o.price asc, o.shippingFee asc, o.id asc
+            order by o.inStock desc, o.price asc, o.shippingFee asc, o.id asc
             """)
     List<OfferResponse> findByProductIdOrdered(@Param("productId") Long productId);
 }

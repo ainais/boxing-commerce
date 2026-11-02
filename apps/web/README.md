@@ -2,7 +2,7 @@
 
 복싱용품 가격 비교 사이트의 프론트엔드입니다. 상품별 판매처 가격을 비교하고, 구매는 판매처 링크로 연결합니다(주문/결제 기능 없음).
 
-> 현재는 `src/lib/mock/`의 **mock 데이터**로 동작합니다. 데이터 접근은 `src/lib/api.ts` 한 곳에 모여 있어, 이후 백엔드 API 연동 시 이 파일의 구현만 교체할 예정입니다.
+> 데이터는 `apps/api`의 조회 API에서 가져옵니다. API 호출은 `src/lib/api.ts` 한 곳에 모여 있고, 서버 컴포넌트에서만 호출합니다.
 
 ## 스택
 
@@ -13,10 +13,17 @@
 
 ## 실행 방법
 
+API(`apps/api`, 기본 http://localhost:4001)를 먼저 띄운 뒤 web을 실행합니다.
+
 ```bash
 pnpm install
-pnpm dev      # http://localhost:3000
+pnpm dev      # http://localhost:4000
 ```
+
+- API 주소는 환경변수 `API_BASE_URL`(기본값 `http://localhost:4001`)로 바꿉니다. `.env.example`을 참고해 `.env.local`을 만드세요.
+- API가 꺼져 있으면 "데이터를 불러오지 못했습니다" 안내가 보입니다.
+- 상품 이미지는 판매처 외부 주소(`goldenchamps.co.kr/web/product/**`)이며 `next.config.ts`의 `images.remotePatterns`에 허용돼 있습니다. 다른 판매처를 추가하면 여기에 호스트를 더해야 합니다.
+- 배송비 표시는 `src/lib/format.ts` 한 곳에서 정합니다(0원이면 "판매처 확인").
 
 ```bash
 pnpm lint
@@ -33,4 +40,4 @@ pnpm build
 | `/` | 인기 상품, 카테고리별 섹션 |
 | `/products` | 검색·카테고리·브랜드·가격 필터, 정렬, 페이지네이션 (상태는 URL searchParams) |
 | `/products/[id]` | 판매처별 가격 비교, 30일 가격 추이, 관련 상품 |
-| `/go/[offerId]` | 판매처 이동용 redirect (추후 클릭 로그 기록 예정) |
+| `/go/[offerId]` | 클릭 로그용 자리. 지금은 404만 돌려줍니다(판매처 링크는 offer url로 직접 이동) |

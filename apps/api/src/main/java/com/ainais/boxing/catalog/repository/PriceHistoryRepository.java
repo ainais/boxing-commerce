@@ -11,11 +11,12 @@ import java.util.List;
 
 public interface PriceHistoryRepository extends JpaRepository<PriceHistory, Long> {
 
-    /** 상품의 모든 offer에 대한 since 이후 가격 기록 (일별 최저가는 서비스에서 계산) */
+    /** 상품의 재고 있는 offer에 대한 since 이후 가격 기록 (일별 최저가는 서비스에서 계산) */
     @Query("""
             select new com.ainais.boxing.catalog.dto.PriceRow(ph.capturedAt, ph.price)
             from PriceHistory ph
             where ph.offer.product.id = :productId
+              and ph.offer.inStock = true
               and ph.capturedAt >= :since
             """)
     List<PriceRow> findRowsSince(@Param("productId") Long productId, @Param("since") Instant since);
