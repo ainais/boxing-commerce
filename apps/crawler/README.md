@@ -55,11 +55,13 @@ uv run --env-file .env python -m crawler --shop goldenchamps --save --category 2
 
 ## Jenkins 정기 실행
 
-- 파이프라인: `apps/crawler/Jenkinsfile` (Declarative). 단계는 Setup(`uv sync --frozen`) → Test(`uv run pytest -q`) → Crawl(`--save`)입니다.
-- 스케줄: `cron('H 6 * * *')`, 매일 오전 6시대에 한 번 실행됩니다. 빌드는 동시에 하나만 돌고(`disableConcurrentBuilds`), 30분 timeout, 최근 30개 빌드만 보관합니다.
-- 필요한 Jenkins Credentials: ID `boxing-db-password`, 종류 **Secret text** (DB 비밀번호). 나머지 접속 값(host, port, db, user, 배송비)은 비밀이 아니라 Jenkinsfile의 `environment`에 있습니다.
+- 파이프라인: `apps/crawler/Jenkinsfile` (Declarative). 대상 몰은 골든챔스와 복싱몰입니다.
+- 스케줄: `cron('H 21 * * *')`, 매일 저녁 21시대 임의 분(컨테이너 시간대 Asia/Seoul)에 한 번 실행됩니다. 크론 트리거는 잡을 한 번 실행한 뒤부터 적용됩니다(Jenkinsfile 변경 후 첫 실행은 수동으로). 빌드는 동시에 하나만 돌고(`disableConcurrentBuilds`), 30분 timeout, 최근 30개 빌드만 보관합니다.
+- stage 구성: Setup(`uv sync --frozen`) → Test(`uv run pytest -q`) → Crawl goldenchamps → Crawl boxingmall. 몰은 병렬이 아니라 순서대로 하나씩 수집합니다(동시 요청 금지). 각 stage는 `uv run python -m crawler --shop <몰> --save`를 실행합니다.
+- 앞 몰이 실패해도 뒤 몰 stage는 계속 실행되고, 실패한 몰이 하나라도 있으면 빌드 최종 결과는 FAILURE로 표시됩니다. 어느 몰이 실패했는지는 stage 결과로 구분합니다.
+- 필요한 Jenkins Credentials: ID `boxing-db-password`, 종류 **Secret text** (DB 비밀번호). 나머지 접속 값(host, port, db, user, 몰별 배송비, 복싱몰 인증서 경로)은 비밀이 아니라 Jenkinsfile의 `environment`에 있습니다.
 - DB 호스트가 `pg-local`인 이유: Jenkins는 컨테이너 안에서 돌기 때문에 `localhost`는 Jenkins 컨테이너 자신을 가리킵니다. 같은 Docker 네트워크의 Postgres 컨테이너를 서비스 이름 `pg-local`로 찾습니다. Jenkins 컨테이너에는 `uv`가 설치돼 있어야 합니다.
-- Crawl 종료 코드: `0` 성공, `2` 다른 수집이 이미 실행 중(빌드 UNSTABLE로 표시하고 파이프라인은 정상 종료), 그 외(`1` 등)는 빌드 실패입니다.
+- 몰별 Crawl 종료 코드: `0` 성공, `2` 다른 수집이 이미 실행 중(빌드 UNSTABLE로 표시하고 다음 몰로 진행), 그 외(`1` 등)는 해당 몰 실패(빌드 FAILURE)입니다.
 - 수집 이상 판정의 "직전 대비 50%" 기준은 이 판매처의 최근 SUCCESS 최대 5건 `items_found`의 최댓값입니다. 이력이 없으면 생략하고, 부분 수집(`--category`, `--max-pages`)에서도 생략합니다.
 
 ## 분류 리포트

@@ -1,4 +1,4 @@
-// 골든챔스 수집 정기 실행. 필요한 Credentials: boxing-db-password (Secret text)
+// 골든챔스·복싱몰 수집 정기 실행(매일 저녁). 필요한 Credentials: boxing-db-password (Secret text)
 pipeline {
     agent any
 
@@ -9,17 +9,21 @@ pipeline {
     }
 
     triggers {
-        cron('H 6 * * *')
+        cron('H 21 * * *')
     }
 
-    // 비밀이 아닌 값만 둔다. DB 비밀번호는 Crawl 단계에서 Credentials로 주입한다.
+    // 비밀이 아닌 값만 둔다. DB 비밀번호는 몰별 Crawl 단계에서 Credentials로 주입한다.
     environment {
         CRAWLER_DB_HOST = 'pg-local'
         CRAWLER_DB_PORT = '5432'
         CRAWLER_DB_NAME = 'boxing_commerce'
         CRAWLER_DB_USER = 'boxing'
         GOLDENCHAMPS_SHIPPING_FEE = '0'
+        BOXINGMALL_SHIPPING_FEE = '0'
         BOXINGMALL_CA_FILE = '/var/jenkins_certs/boxingmall-intermediate.pem'
+        // 컨테이너 로케일과 무관하게 한글 로그가 깨지거나 예외로 죽지 않게 한다
+        PYTHONUTF8 = '1'
+        PYTHONIOENCODING = 'utf-8'
     }
 
     stages {
@@ -40,24 +44,23 @@ pipeline {
             }
         }
 
-        stage('Crawl') {
+        // 몰은 순서대로 하나씩 수집한다(동시 요청 금지). 앞 몰이 실패해도 뒤 몰은 실행하고,
+        // 실패한 몰이 있으면 빌드 최종 결과는 FAILURE가 된다.
+        stage('Crawl goldenchamps') {
             steps {
-                dir('apps/crawler') {
-                    withCredentials([string(credentialsId: 'boxing-db-password', variable: 'CRAWLER_DB_PASSWORD')]) {
-                        script {
-                            // 첫 줄의 shebang(-e)으로 sh의 기본 -x(명령 echo)를 끈다
-                            def rc = sh(
-                                returnStatus: true,
-                                script: '#!/bin/sh -e\nuv run python -m crawler --shop goldenchamps --save'
-                            )
-                            if (rc == 0) {
-                                echo '수집 성공'
-                            } else if (rc == 2) {
-                                unstable('다른 수집이 이미 실행 중')
-                            } else {
-                                error("수집 실패: 종료 코드 ${rc}")
-                            }
-                        }
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    script {
+                        crawlShop('goldenchamps')
+                    }
+                }
+            }
+        }
+
+        stage('Crawl boxingmall') {
+            steps {
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    script {
+                        crawlShop('boxingmall')
                     }
                 }
             }
@@ -67,7 +70,27 @@ pipeline {
     // .venv는 정리하지 않고 다음 실행에서 재사용한다
     post {
         failure {
-            echo '수집 파이프라인 실패: 콘솔 로그와 crawl_run 테이블의 error_message를 확인하세요.'
+            echo '수집 실패: Console Output과 stage 결과를 확인'
+        }
+    }
+}
+
+// 한 몰을 수집한다. 종료 코드: 0 성공, 2 이미 실행 중(UNSTABLE), 그 외 실패(error)
+def crawlShop(String shop) {
+    dir('apps/crawler') {
+        withCredentials([string(credentialsId: 'boxing-db-password', variable: 'CRAWLER_DB_PASSWORD')]) {
+            // 첫 줄의 shebang(-e)으로 sh의 기본 -x(명령 echo)를 끈다
+            def rc = sh(
+                returnStatus: true,
+                script: "#!/bin/sh -e\nuv run python -m crawler --shop ${shop} --save"
+            )
+            if (rc == 0) {
+                echo "수집 성공: ${shop}"
+            } else if (rc == 2) {
+                unstable("다른 수집이 이미 실행 중: ${shop}")
+            } else {
+                error("수집 실패: ${shop}, 종료 코드 ${rc}")
+            }
         }
     }
 }
