@@ -6,7 +6,6 @@ import {
   apiErrorKind,
   getProduct,
   getRelatedProducts,
-  getStaticProductIds,
   settle,
 } from "@/lib/api";
 import { shippingLabel, won } from "@/lib/format";
@@ -21,10 +20,8 @@ type Params = Promise<{ id: string }>;
 
 const isProductId = (id: string) => /^\d+$/.test(id);
 
-// Cache Components: 동적 라우트는 최소 1개 이상의 params를 prerender 해야 한다
-export async function generateStaticParams() {
-  return (await getStaticProductIds()).map((id) => ({ id }));
-}
+// generateStaticParams는 두지 않는다. 있으면 빌드 중에 API를 호출해 그 결과(연결 실패 포함)가
+// 상품 페이지에 굳어진다. 없으면 id는 요청 시점 데이터라 빌드는 Suspense 셸만 만들고, 본문은 요청 때 그린다.
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { id } = await params;

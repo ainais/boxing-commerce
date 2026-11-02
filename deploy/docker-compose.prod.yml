@@ -1,0 +1,58 @@
+# 운영용 compose. 이미지는 빌드하지 않고 이름만 참조한다(빌드는 Jenkins가 따로 한다).
+# 필요한 값은 deploy/.env 또는 셸 환경변수로 받는다(deploy/.env.example 참고).
+name: boxing-prod
+
+services:
+  api:
+    image: boxing-api:${API_TAG:-latest}
+    container_name: boxing-api
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://pg-local:5432/boxing_commerce
+      DB_USERNAME: boxing
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD 필요}
+      TZ: Asia/Seoul
+    # ports는 열지 않는다. web이 내부 네트워크로만 접근한다
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - default
+      - postgres_default # pg-local(Postgres 컨테이너) 접근용
+
+  web:
+    image: boxing-web:${WEB_TAG:-latest}
+    container_name: boxing-web
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://api:4001
+      TZ: Asia/Seoul
+    ports:
+      - "127.0.0.1:4100:4000"
+    mem_limit: 512m
+    depends_on:
+      api:
+        condition: service_healthy
+
+  tunnel:
+    image: cloudflare/cloudflared:${CLOUDFLARED_TAG:-latest}
+    container_name: boxing-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN 필요}
+    # ports는 열지 않는다. 기본 네트워크만 써서 web:4000에 서비스 이름으로 접근한다(postgres_default에는 붙이지 않는다)
+    # 이미지에 셸이 없을 수 있어 healthcheck는 두지 않는다
+    mem_limit: 128m
+    depends_on:
+      web:
+        condition: service_healthy
+
+networks:
+  postgres_default:
+    external: true

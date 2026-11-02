@@ -14,6 +14,18 @@ const PLACEHOLDER_COLORS = [
   "#4b5563",
 ];
 
+// 복싱몰 서버는 TLS 중간 인증서를 내려주지 않아 서버 쪽 이미지 최적화(next/image)가 이미지를 받지 못한다.
+// 이 호스트는 최적화를 끄고 브라우저가 직접 받게 한다. 다른 호스트(골든챔스)는 기존대로 최적화한다.
+const UNOPTIMIZED_HOSTS = new Set(["www.boxingmall.co.kr"]);
+
+function isUnoptimizedHost(src: string): boolean {
+  try {
+    return UNOPTIMIZED_HOSTS.has(new URL(src).hostname);
+  } catch {
+    return false;
+  }
+}
+
 interface Props {
   /** 외부 상품 이미지 주소. null이거나 로드에 실패하면 placeholder를 보여 준다 */
   src: string | null;
@@ -45,6 +57,7 @@ export function ProductImage({
           sizes={sizes}
           loading={eager ? "eager" : "lazy"}
           className="object-contain"
+          unoptimized={isUnoptimizedHost(src)}
           onError={() => setFailedSrc(src)}
         />
       </div>

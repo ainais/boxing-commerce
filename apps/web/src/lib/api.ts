@@ -6,6 +6,7 @@
  * - 검색어(q)가 있는 목록: 키가 무한히 늘어나므로 캐시하지 않고 매 요청마다 가져온다(no-store)
  */
 import { cacheLife } from "next/cache";
+import { connection } from "next/server";
 import type { Category, Page, ProductDetail, ProductSummary } from "@/lib/types";
 
 const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:4001").replace(/\/+$/, "");
@@ -89,6 +90,15 @@ async function request<T>(path: string, query: string, noStore: boolean): Promis
   return (await res.json()) as T;
 }
 
+/**
+ * API 호출을 요청 시점으로 미룬다. 빌드(prerender) 중에는 API가 없을 수 있고, 그때의 연결 실패가
+ * 빌드 결과에 굳어지면 안 된다. 모든 조회 함수가 호출하며, 호출하는 컴포넌트는 Suspense 안에 있어야 한다.
+ * (요청 시점에는 아래 "use cache"의 60초 캐시가 그대로 적용된다)
+ */
+async function deferToRequest(): Promise<void> {
+  await connection();
+}
+
 /** 60초 캐시 조회. 실패(throw)는 캐시되지 않는다. */
 async function cachedGet<T>(path: string, query: string): Promise<T> {
   "use cache";
@@ -110,16 +120,19 @@ export interface GetProductsParams {
 }
 
 export async function getCategories(): Promise<Category[]> {
+  await deferToRequest();
   return cachedGet<Category[]>("/api/categories", "");
 }
 
 export async function getBrands(category?: string): Promise<string[]> {
+  await deferToRequest();
   const p = new URLSearchParams();
   if (category) p.set("category", category);
   return cachedGet<string[]>("/api/brands", p.toString());
 }
 
 export async function getProducts(params: GetProductsParams = {}): Promise<Page<ProductSummary>> {
+  await deferToRequest();
   const p = new URLSearchParams();
   if (params.q) p.set("q", params.q);
   if (params.category) p.set("category", params.category);
@@ -145,19 +158,14 @@ export async function getProductsByCategory(slug: string, limit = 4): Promise<Pr
 
 /** 없는 상품이면 kind가 "not_found"인 ApiError를 던진다 */
 export async function getProduct(id: string): Promise<ProductDetail> {
+  await deferToRequest();
   return cachedGet<ProductDetail>(`/api/products/${encodeURIComponent(id)}`, "");
 }
 
 export async function getRelatedProducts(id: string, limit = 4): Promise<ProductSummary[]> {
+  await deferToRequest();
   return cachedGet<ProductSummary[]>(
     `/api/products/${encodeURIComponent(id)}/related`,
     `limit=${limit}`,
   );
-}
-
-/** generateStaticParams용: prerender할 상품 id를 최소 1개 돌려준다(API를 못 쓰면 "1") */
-export async function getStaticProductIds(): Promise<string[]> {
-  const result = await settle(getProducts({ size: 1 }));
-  const first = result.data?.items[0];
-  return [String(first?.id ?? 1)];
 }

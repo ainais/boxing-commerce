@@ -1,0 +1,9 @@
+node_modules
+.next
+.next-verify
+.env*
+!.env.example
+.git
+*.md
+*.tsbuildinfo
+next-env.d.ts

@@ -9,3 +9,8 @@ app:
   cors:
     # 허용 origin은 환경변수로만 받는다(쉼표 구분). 기본값은 비어 있어 허용 없음
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+spring:
+  flyway:
+    # 기존 DB의 flyway_schema_history에는 dev 시드(repeatable) 적용 이력이 있는데,
+    # prod는 시드 경로(db/seed)를 읽지 않아 validate가 "적용됐지만 파일이 없음"으로 막힌다. 그 오류만 무시한다
+    ignore-migration-patterns: "repeatable:missing"
