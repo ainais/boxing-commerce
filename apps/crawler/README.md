@@ -1,6 +1,6 @@
 # crawler
 
-쇼핑몰 상품 목록을 수집·파싱하는 Python 모듈입니다. 현재 단계는 **골든챔스 목록 수집 + JSON 출력**까지이며 DB 연결·쓰기는 구현되지 않았습니다.
+쇼핑몰 상품 목록을 수집·파싱해 DB에 적재하는 Python 모듈입니다. 쇼핑몰 2곳(`goldenchamps`, `boxingmall`)을 지원하며, `--dry-run`은 JSON 출력만, `--save`는 DB 적재(`crawl_run`·`raw_listing` 저장, `product`·`offer` 승격, 가격 이력, 만료 처리)까지 합니다. 운영에서는 Jenkins가 매일 저녁 실행합니다(아래 Jenkins 정기 실행 참고).
 
 ## 실행
 
@@ -12,13 +12,13 @@ uv run python -m crawler --shop goldenchamps --dry-run
 
 | 옵션 | 설명 |
 | --- | --- |
-| `--shop` | 쇼핑몰 어댑터 이름 (`goldenchamps`) |
+| `--shop` | 쇼핑몰 어댑터 이름 (`goldenchamps`, `boxingmall`) |
 | `--category N` | 카테고리 번호. 여러 번 지정 가능, 생략 시 전체 |
 | `--max-pages N` | 카테고리당 최대 페이지 (빠른 시험용) |
 | `--delay 초` | 요청 사이 대기. 기본 1.5, 환경변수 `CRAWLER_DELAY_SECONDS`로도 설정 |
 | `--dry-run` | 상품을 한 줄에 하나씩 JSON으로 stdout에 출력하고, 요약은 stderr에 출력 |
 
-`--dry-run` 없이 실행하면 "DB 쓰기는 아직 구현되지 않음" 안내 후 종료합니다.
+`--dry-run`과 `--save` 중 하나는 지정해야 하며, 둘 다 없으면 안내 후 종료합니다(종료 코드 1). DB 적재는 아래 "DB 적재" 섹션을 참고하세요.
 
 빠른 시험 예: `uv run python -m crawler --shop goldenchamps --category 24 --max-pages 1 --dry-run > out.jsonl`
 
@@ -94,7 +94,14 @@ uv run python -m crawler.report --input out.jsonl --samples 30 --show-unmatched 
 
 ## 수집 매너
 
-- 요청 URL은 상품 목록(`/product/list.html`)으로만 구성합니다. `Fetcher`가 어댑터의 `allowed_paths` 밖 경로와 robots.txt Disallow 경로(`/admin`, `/exec/front/`, `/api`, `/member/`, `/myshop/`, 게시판)를 거부합니다.
+허용 경로는 쇼핑몰별로 robots.txt를 확인해 반영한 규칙으로 제한합니다. 크롤러가 robots.txt를 실시간으로 읽지는 않으므로, 사이트의 규칙이 바뀌면 해당 어댑터(`shops/*.py`)를 갱신해야 합니다.
+
+- 골든챔스: 허용 경로는 상품 목록 `/product/list.html`뿐입니다. 금지 접두사는 `/admin`, `/exec/front/`, `/api`, `/member/`, `/myshop/`, `/board`입니다.
+- 복싱몰: 허용 요청은 `/boxingmall.php` 중 `loadpage=list`(목록)뿐이며, 상세·회원·로그인 등 다른 `loadpage`는 거부합니다. 금지 접두사는 `/admin`, `/boxingmall/`입니다.
+
+공통(`http.py`의 `Fetcher`):
+
+- 어댑터의 `allowed_paths` 밖이거나 금지 접두사에 걸리는 요청은 보내지 않고 거부합니다.
 - 요청 사이 기본 1.5초 대기, timeout 15초, 5xx·타임아웃은 최대 2회 재시도(지수 백오프 1초, 2초).
 - User-Agent: `Mozilla/5.0 (compatible; boxing-commerce-crawler/0.1)`
 - 카테고리와 페이지는 순차 처리하며 동시 요청을 하지 않습니다.

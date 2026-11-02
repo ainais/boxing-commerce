@@ -22,7 +22,7 @@ pnpm dev      # http://localhost:4000
 
 - API 주소는 환경변수 `API_BASE_URL`(기본값 `http://localhost:4001`)로 바꿉니다. `.env.example`을 참고해 `.env.local`을 만드세요.
 - API가 꺼져 있으면 "데이터를 불러오지 못했습니다" 안내가 보입니다.
-- 상품 이미지는 판매처 외부 주소(`goldenchamps.co.kr/web/product/**`)이며 `next.config.ts`의 `images.remotePatterns`에 허용돼 있습니다. 다른 판매처를 추가하면 여기에 호스트를 더해야 합니다.
+- 상품 이미지는 판매처 외부 주소입니다. 최적화를 거치는 호스트는 `next.config.ts`의 `images.remotePatterns`에 허용돼 있고, 최적화를 끄는 호스트는 `src/components/ProductImage.tsx`에 있습니다. 판매처를 추가하면 둘 중 하나에 호스트를 더해야 합니다.
 - 배송비 표시는 `src/lib/format.ts` 한 곳에서 정합니다(0원이면 "판매처 확인").
 
 ```bash
