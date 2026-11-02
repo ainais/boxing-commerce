@@ -24,6 +24,7 @@
 | `API_TAG` | `boxing-api` 이미지 태그 | `latest` |
 | `WEB_TAG` | `boxing-web` 이미지 태그 | `latest` |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare 터널 토큰. 없으면 compose가 오류를 냅니다 | 없음(필수) |
+| `BOXINGMALL_CA_HOST_PATH` | 호스트의 복싱몰 중간 인증서 PEM 절대 경로. 없으면 compose가 오류를 냅니다 | 없음(필수) |
 | `CLOUDFLARED_TAG` | `cloudflare/cloudflared` 이미지 태그 | `latest` |
 
 compose 안에 고정된 값: api는 `SPRING_PROFILES_ACTIVE=prod`, `DB_URL=jdbc:postgresql://pg-local:5432/boxing_commerce`, `DB_USERNAME=boxing`, `TZ=Asia/Seoul`이고, web은 `API_BASE_URL=http://api:4001`입니다. `API_BASE_URL`은 이미지에 들어 있지 않고 실행 시에만 주입됩니다. 메모리 제한은 api 768m, web 512m입니다.
@@ -50,6 +51,18 @@ boxingeverything.site ─▶ Cloudflare ─▶ 터널(boxing-tunnel) ─▶ web:
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d tunnel
 ```
 
+## 복싱몰 이미지 프록시
+
+복싱몰 서버는 TLS 중간 인증서를 보내지 않아서, HTTPS 페이지에서 브라우저가 복싱몰 이미지를 인증서 오류(`ERR_CERT_AUTHORITY_INVALID`)로 거부합니다. 그래서 web 서버가 이미지를 대신 받아 전달합니다.
+
+- 동작: 화면은 복싱몰 이미지를 `/img/boxingmall/product_images/...` 경로로 요청하고, web 서버가 복싱몰에서 받아 그대로 돌려줍니다. 이미지를 저장하지 않습니다.
+- 제한: 상위 서버는 복싱몰 한 곳으로 고정이고, `/product_images/` 아래 이미지 파일(jpg, jpeg, png, gif, webp) 경로만 허용합니다. 리다이렉트는 따라가지 않고, 8초 타임아웃과 5MB 크기 상한이 있습니다. 위반이나 오류는 404, 502, 503으로 응답합니다.
+- 캐시: 성공 응답은 브라우저 1일, 공유 캐시(Cloudflare 등) 7일(`Cache-Control`)입니다. 오류 응답은 캐시하지 않습니다.
+- 인증서 검증은 끄지 않습니다. 시스템 루트 CA에 환경변수 `BOXINGMALL_CA_FILE`의 PEM을 더해 신뢰합니다. 컨테이너에서는 compose가 이 값을 `/certs/boxingmall-intermediate.pem`으로 고정하고, 호스트 파일을 읽기 전용으로 마운트합니다.
+- 설정: `deploy/.env`의 `BOXINGMALL_CA_HOST_PATH`에 호스트의 PEM 파일 절대 경로를 적습니다. web 컨테이너는 비루트(`node`) 사용자로 실행되므로 호스트 파일 권한은 644(누구나 읽기)여야 합니다. 이 파일은 레포에 두지 않습니다.
+- 인증서가 없거나 읽을 수 없으면 이미지 요청은 503("이미지 서버 인증서 설정이 필요합니다")이고 화면에는 플레이스홀더가 보입니다. 원인은 `docker logs boxing-web`에 남습니다.
+- 갱신: 중간 인증서는 2027-11-02에 만료됩니다. 만료 전에 [crawler README](../apps/crawler/README.md)의 "중간 인증서 받기" 절차로 새 PEM을 받아 `BOXINGMALL_CA_HOST_PATH`의 파일을 교체하고 web을 재시작합니다(`up -d web`). 크롤러가 쓰는 파일도 같은 방식으로 교체합니다.
+
 ## 로컬에서 직접 빌드해 실행
 
 ```bash
@@ -63,7 +76,7 @@ API_TAG=local WEB_TAG=local docker compose -f deploy/docker-compose.prod.yml up 
 compose 파일 문법만 확인하려면(컨테이너를 만들지 않음):
 
 ```bash
-DB_PASSWORD=x docker compose -f deploy/docker-compose.prod.yml config
+DB_PASSWORD=x CLOUDFLARE_TUNNEL_TOKEN=x BOXINGMALL_CA_HOST_PATH=/tmp/x.pem docker compose -f deploy/docker-compose.prod.yml config
 ```
 
 web 이미지는 빌드 중에 API를 호출하지 않으므로 API 없이도 빌드됩니다.

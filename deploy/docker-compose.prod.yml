@@ -31,7 +31,11 @@ services:
     restart: unless-stopped
     environment:
       API_BASE_URL: http://api:4001
+      # 복싱몰 이미지 프록시가 신뢰할 중간 인증서(PEM). 호스트 파일은 BOXINGMALL_CA_HOST_PATH로 받는다
+      BOXINGMALL_CA_FILE: /certs/boxingmall-intermediate.pem
       TZ: Asia/Seoul
+    volumes:
+      - ${BOXINGMALL_CA_HOST_PATH:?BOXINGMALL_CA_HOST_PATH 필요}:/certs/boxingmall-intermediate.pem:ro
     ports:
       - "127.0.0.1:4100:4000"
     mem_limit: 512m

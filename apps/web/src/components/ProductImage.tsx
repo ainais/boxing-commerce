@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { isProxyImageSrc, toDisplayImageSrc } from "@/lib/imageSrc";
 
 const PLACEHOLDER_COLORS = [
   "#b91c1c",
@@ -14,11 +15,13 @@ const PLACEHOLDER_COLORS = [
   "#4b5563",
 ];
 
-// 복싱몰 서버는 TLS 중간 인증서를 내려주지 않아 서버 쪽 이미지 최적화(next/image)가 이미지를 받지 못한다.
-// 이 호스트는 최적화를 끄고 브라우저가 직접 받게 한다. 다른 호스트(골든챔스)는 기존대로 최적화한다.
+// 복싱몰 이미지는 서버 프록시(/img/boxingmall/...)로 받는다(toDisplayImageSrc). 프록시가 캐시를 맡으므로
+// next/image 최적화는 끈다. 프록시 경로로 바뀌지 않은 복싱몰 주소도 같은 이유(서버 쪽 TLS 실패)로 최적화를 끈다.
+// 다른 호스트(골든챔스)는 기존대로 최적화한다.
 const UNOPTIMIZED_HOSTS = new Set(["www.boxingmall.co.kr"]);
 
-function isUnoptimizedHost(src: string): boolean {
+function isUnoptimized(src: string): boolean {
+  if (isProxyImageSrc(src)) return true;
   try {
     return UNOPTIMIZED_HOSTS.has(new URL(src).hostname);
   } catch {
@@ -39,12 +42,13 @@ interface Props {
 
 /** 상품 이미지. 없거나 실패하면 색 블록 + 단순 SVG 아이콘 placeholder */
 export function ProductImage({
-  src,
+  src: rawSrc,
   label,
   seed,
   sizes = "(min-width: 1024px) 25vw, 50vw",
   eager = false,
 }: Props) {
+  const src = toDisplayImageSrc(rawSrc);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
   if (src && failedSrc !== src) {
@@ -57,7 +61,7 @@ export function ProductImage({
           sizes={sizes}
           loading={eager ? "eager" : "lazy"}
           className="object-contain"
-          unoptimized={isUnoptimizedHost(src)}
+          unoptimized={isUnoptimized(src)}
           onError={() => setFailedSrc(src)}
         />
       </div>
