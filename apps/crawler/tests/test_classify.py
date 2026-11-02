@@ -285,3 +285,39 @@ def test_model_code_from_tokens():
 @pytest.mark.parametrize("name", ["", "   "])
 def test_empty_name_is_unmatched(name):
     assert _c(name).status == UNMATCHED
+
+
+@pytest.mark.parametrize(
+    ("name", "cate", "keyword"),
+    [
+        ("위닝 체인지 스트링-신발/글러브 ( F-24)", 28, "스트링"),
+        ("위닝 글러브 그립톡 (P-18)", 28, "그립톡"),
+        ("위닝 마우스피스 케이스 (F-2)", 28, "마우스피스 케이스"),
+    ],
+)
+def test_glove_named_accessories_are_excluded(name, cate, keyword):
+    r = _c(name, cate)
+    assert (r.status, r.unmatched_reason) == (UNMATCHED, "excluded_accessory")
+    assert r.category_reason == f"excluded:{keyword}"
+
+
+def test_inner_glove_is_handwraps_not_gloves():
+    r = _c("아디다스 스피드 퀵 랩 젤 이너글러브 (ADISBP014) - 블랙/레드", 24)
+    assert r.brand == "Adidas"
+    assert (r.category_slug, r.category_reason) == ("handwraps", "keyword:이너글러브")
+    assert r.status == PROMOTABLE
+
+
+def test_jab_ball_is_training_not_bags():
+    # 샌드백 계열 키워드가 없고, 몰 폴백(42=bags)보다 키워드가 먼저 적용된다
+    r = _c("스파트 잽볼(SBX-R188) 단계별 3가지 크기선택", 42)
+    assert (r.category_slug, r.category_reason) == ("training", "keyword:잽볼")
+    assert r.brand is None and r.unmatched_reason == "unknown_brand"
+
+
+def test_mouthpiece_with_case_set_is_not_excluded():
+    # 제외는 "마우스피스 케이스"가 연속될 때만. 세트 상품명은 보호구로 분류된다
+    for name in ("위닝 마우스피스 + 케이스", "위닝 마우스피스 (케이스 포함)"):
+        r = _c(name, 25)
+        assert (r.category_slug, r.category_reason) == ("protectors", "keyword:마우스피스")
+        assert r.status == PROMOTABLE
