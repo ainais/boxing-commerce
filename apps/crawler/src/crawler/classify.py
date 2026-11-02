@@ -15,6 +15,7 @@ _MODEL_CODE = re.compile(r"\(([A-Za-z0-9][A-Za-z0-9_.\-]*)\)")
 _TOKEN_CHARS = re.compile(r"[A-Za-z0-9_.\-]+")
 _MEASURE = re.compile(r"^\d+(\.\d+)?(oz|m|cm|kg|g|ml|mm)$", re.IGNORECASE)
 BRAND_TOKEN_WINDOW = 3
+BRAND_NAME_MAX = 200  # brand.name 길이 상한
 
 
 def _has_letter_and_digit(text: str) -> bool:
@@ -38,8 +39,25 @@ def normalize_name(name: str) -> str:
     return _SPACES.sub(" ", name).strip()
 
 
-def extract_brand(name: str) -> str | None:
-    """정규화된 이름의 앞쪽 3개 토큰 안에서 가장 앞에 나오는 브랜드를 찾는다."""
+def normalize_brand(text: str | None) -> str:
+    """브랜드명 정규화: 앞뒤 공백(nbsp 포함) 제거, 연속 공백 1개로. 대소문자는 그대로."""
+    return _SPACES.sub(" ", text or "").strip()
+
+
+def extract_brand(name: str, brand_text: str | None = None) -> str | None:
+    """브랜드 판정.
+
+    brand_text(브랜드 칸)가 있으면 BRAND_ALIASES → brand_text 자체(의미 없는 값 제외) →
+    상품명 앞쪽 3개 토큰 순으로 찾는다. 없으면 상품명 앞쪽 3개 토큰만 본다.
+    """
+    text = normalize_brand(brand_text)
+    if text:
+        lowered_text = text.lower()
+        for brand, keywords in rules.BRAND_ALIASES.items():
+            if any(k.lower() in lowered_text for k in keywords):
+                return brand
+        if lowered_text not in rules.MEANINGLESS_BRAND_VALUES:
+            return text[:BRAND_NAME_MAX].strip()
     for token in normalize_name(name).split(" ")[:BRAND_TOKEN_WINDOW]:
         lowered = token.lower()
         for brand, keywords in rules.BRAND_ALIASES.items():
@@ -77,7 +95,9 @@ def _has_keyword(lowered: str, keyword: str) -> bool:
     return " " in kw and kw.replace(" ", "") in lowered.replace(" ", "")
 
 
-def classify_category(name: str, shop_category_no: int | None) -> tuple[str | None, str]:
+def classify_category(
+    name: str, shop_category_no: int | None, shop: str = rules.DEFAULT_SHOP
+) -> tuple[str | None, str]:
     lowered = normalize_name(name).lower()
     for keyword in rules.EXCLUDE_KEYWORDS:
         if _has_keyword(lowered, keyword):
@@ -86,7 +106,8 @@ def classify_category(name: str, shop_category_no: int | None) -> tuple[str | No
         for keyword in keywords:
             if _has_keyword(lowered, keyword):
                 return slug, f"keyword:{keyword}"
-    fallback = rules.SHOP_CATEGORY_FALLBACK.get(shop_category_no) if shop_category_no else None
+    shop_fallback = rules.SHOP_CATEGORY_FALLBACK.get(shop, {})
+    fallback = shop_fallback.get(shop_category_no) if shop_category_no else None
     if fallback:
         return fallback, f"fallback:{shop_category_no}"
     return None, "none"
@@ -94,8 +115,10 @@ def classify_category(name: str, shop_category_no: int | None) -> tuple[str | No
 
 def classify(product: dict[str, Any]) -> ClassifiedProduct:
     name = normalize_name(product["name"])
-    brand = extract_brand(name)
-    slug, reason = classify_category(name, product.get("category_no"))
+    brand = extract_brand(name, product.get("brand_text"))
+    slug, reason = classify_category(
+        name, product.get("category_no"), product.get("shop", rules.DEFAULT_SHOP)
+    )
     if reason.startswith("excluded:"):
         unmatched = "excluded_accessory"
     elif brand is None:
@@ -117,16 +140,15 @@ def classify(product: dict[str, Any]) -> ClassifiedProduct:
 
 
 def dedupe(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """shop_product_no 기준 중복 제거. 폴백 키 category_no를 우선, 없으면 먼저 나온 것."""
-    chosen: dict[str, dict[str, Any]] = {}
+    """(shop, 상품 번호) 기준 중복 제거. 그 몰의 폴백 category_no를 우선, 없으면 먼저 나온 것."""
+    chosen: dict[tuple[str, str], dict[str, Any]] = {}
     for p in products:
-        key = str(p["shop_product_no"])
+        shop = p.get("shop", rules.DEFAULT_SHOP)
+        fallback = rules.SHOP_CATEGORY_FALLBACK.get(shop, {})
+        key = (shop, str(p["shop_product_no"]))
         current = chosen.get(key)
         if current is None:
             chosen[key] = p
-        elif (
-            current.get("category_no") not in rules.SHOP_CATEGORY_FALLBACK
-            and p.get("category_no") in rules.SHOP_CATEGORY_FALLBACK
-        ):
+        elif current.get("category_no") not in fallback and p.get("category_no") in fallback:
             chosen[key] = p
     return list(chosen.values())

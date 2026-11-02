@@ -6,7 +6,8 @@ import sys
 
 import httpx
 
-from crawler.http import DEFAULT_DELAY, Fetcher
+from crawler.crawl import PageGuardError, format_unknown_images, iter_pages, merge_unknown_images
+from crawler.http import DEFAULT_DELAY, Fetcher, MissingCertificateError
 from crawler.shops import ADAPTERS
 from crawler.shops.base import ShopAdapter
 
@@ -34,6 +35,10 @@ def _parser() -> argparse.ArgumentParser:
         "--save", action="store_true", help="수집 결과를 DB에 적재하고 product/offer로 승격"
     )
     p.add_argument(
+        "--raw-only", action="store_true",
+        help="--save와 함께: raw_listing까지만 저장하고 승격·만료는 하지 않음",
+    )
+    p.add_argument(
         "--expire-days", type=int, default=3,
         help="--save 시 이 일수 동안 안 보인 offer를 품절 처리(기본 3, 부분 수집에서는 생략)",
     )
@@ -41,31 +46,32 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def crawl_category(adapter: ShopAdapter, fetcher: Fetcher, category_no: int,
-                   max_pages: int | None) -> tuple[int, int, int, int]:
+                   max_pages: int | None,
+                   unknown_images: list[str] | None = None) -> tuple[int, int, int, int]:
     """카테고리를 순차 수집해 JSON을 한 줄씩 출력하고 (수집, 품절, 파싱 실패, 오류)를 돌려준다."""
     collected = sold_out = failed = errors = 0
-    page, last_page = 1, 1
-    while page <= last_page and (max_pages is None or page <= max_pages):
-        try:
-            html = fetcher.get_text(adapter.list_url(category_no, page))
-        except httpx.HTTPError as e:
-            log.error("카테고리 %d 페이지 %d 요청 실패, 이 카테고리 중단: %s", category_no, page, e)
-            errors += 1
-            break
-        parsed = adapter.parse_list(html, category_no)
-        if page == 1:
-            last_page = parsed.last_page
-        failed += parsed.failed
-        for product in parsed.products:
-            print(json.dumps(product.to_dict(), ensure_ascii=False), flush=True)
-            collected += 1
-            sold_out += product.sold_out
-        page += 1
+    try:
+        for parsed in iter_pages(adapter, fetcher, category_no, max_pages):
+            failed += parsed.failed
+            if unknown_images is not None:
+                merge_unknown_images(unknown_images, parsed)
+            for product in parsed.products:
+                print(json.dumps(product.to_dict(), ensure_ascii=False), flush=True)
+                collected += 1
+                sold_out += product.sold_out
+    except (httpx.HTTPError, PageGuardError) as e:
+        log.error("카테고리 %d 수집 중단: %s", category_no, e)
+        errors += 1
     return collected, sold_out, failed, errors
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.raw_only and args.dry_run:
+        parser.error("--raw-only는 --dry-run과 함께 쓸 수 없습니다")
+    if args.raw_only and not args.save:
+        parser.error("--raw-only는 --save와 함께 써야 합니다")
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(message)s")
 
     if not (args.dry_run or args.save):
@@ -84,11 +90,16 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_save(adapter, categories, args)
 
-    fetcher = Fetcher(adapter.allowed_paths, delay=args.delay)
+    try:
+        fetcher = Fetcher.for_adapter(adapter, delay=args.delay)
+    except MissingCertificateError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     total = sold = failed = errors = 0
+    unknown_images: list[str] = []
     try:
         for cate in categories:
-            c, s, f, e = crawl_category(adapter, fetcher, cate, args.max_pages)
+            c, s, f, e = crawl_category(adapter, fetcher, cate, args.max_pages, unknown_images)
             print(f"[{cate} {adapter.categories[cate]}] 수집 {c}", file=sys.stderr)
             total, sold, failed, errors = total + c, sold + s, failed + f, errors + e
     finally:
@@ -96,4 +107,6 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = f"총 {total}개, 품절 {sold}개, 파싱 실패 {failed}개, 요청 오류 {errors}건"
     print(summary, file=sys.stderr)
+    if adapter.reports_unknown_images:
+        print(format_unknown_images(unknown_images), file=sys.stderr)
     return 0 if errors == 0 else 1

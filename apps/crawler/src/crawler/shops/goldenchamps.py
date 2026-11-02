@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
+from crawler.http import FORBIDDEN_PREFIXES
 from crawler.models import ScrapedProduct
 from crawler.shops.base import ListPage
 
@@ -17,6 +18,15 @@ _BLOCK_ID = re.compile(r"^anchorBoxId_(\d+)$")
 
 class GoldenChampsAdapter:
     name = "goldenchamps"
+    code = "goldenchamps"
+    display_name = "골든챔스"
+    base_url = BASE_URL
+    forbidden_prefixes = FORBIDDEN_PREFIXES
+    encoding = None  # httpx 기본 디코딩
+    extra_ca_env = None
+    shipping_fee_env = "GOLDENCHAMPS_SHIPPING_FEE"
+    max_pages_limit = None
+    reports_unknown_images = False
     allowed_paths = frozenset({LIST_PATH})
     categories = {
         24: "글러브",

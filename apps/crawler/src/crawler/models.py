@@ -11,11 +11,12 @@ class ScrapedProduct:
     model_summary: str | None
     price: int
     list_price: int | None
-    image_url: str
+    image_url: str | None
     product_url: str
     sold_out: bool
     category_no: int
     scraped_at: datetime
+    brand_text: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

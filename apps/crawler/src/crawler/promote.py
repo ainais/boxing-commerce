@@ -23,7 +23,7 @@ class Candidate:
     name: str  # 정규화된 이름
     brand: str
     category_slug: str
-    image_url: str
+    image_url: str | None
     product_url: str
     price: int
     sold_out: bool

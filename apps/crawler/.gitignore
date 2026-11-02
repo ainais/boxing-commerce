@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 dist/
 .env
+
+# 인증서 (복싱몰 중간 인증서는 레포에 두지 않는다)
+certs/

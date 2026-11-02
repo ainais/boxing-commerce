@@ -19,6 +19,7 @@ pipeline {
         CRAWLER_DB_NAME = 'boxing_commerce'
         CRAWLER_DB_USER = 'boxing'
         GOLDENCHAMPS_SHIPPING_FEE = '0'
+        BOXINGMALL_CA_FILE = '/var/jenkins_certs/boxingmall-intermediate.pem'
     }
 
     stages {

@@ -15,7 +15,8 @@ from psycopg.types.json import Jsonb
 
 from crawler import db, rules
 from crawler.classify import PROMOTABLE, ClassifiedProduct, classify, dedupe
-from crawler.http import Fetcher
+from crawler.crawl import PageGuardError, format_unknown_images, iter_pages, merge_unknown_images
+from crawler.http import Fetcher, MissingCertificateError
 from crawler.models import ScrapedProduct
 from crawler.promote import (
     BASELINE_RUNS,
@@ -31,7 +32,6 @@ from crawler.shops.base import ShopAdapter
 
 log = logging.getLogger("crawler")
 
-SELLER_CODE = "goldenchamps"
 RAW_LISTING_RETENTION = timedelta(days=30)
 DEFAULT_EXPIRE_DAYS = 3
 PRODUCT_NAME_MAX = 200  # product.name varchar(200)
@@ -54,47 +54,46 @@ class Stats:
     raw_purged: int = 0
 
 
-def shipping_fee_from_env() -> int:
-    raw = os.environ.get("GOLDENCHAMPS_SHIPPING_FEE", "0")
+def shipping_fee_from_env(env_name: str) -> int:
+    raw = os.environ.get(env_name, "0")
     try:
         fee = int(raw)
     except ValueError as e:
-        raise db.ConfigError(f"GOLDENCHAMPS_SHIPPING_FEE는 정수여야 합니다: {raw!r}") from e
+        raise db.ConfigError(f"{env_name}는 정수여야 합니다: {raw!r}") from e
     if fee < 0:
-        raise db.ConfigError("GOLDENCHAMPS_SHIPPING_FEE는 0 이상이어야 합니다")
+        raise db.ConfigError(f"{env_name}는 0 이상이어야 합니다")
     return fee
 
 
 def collect(
-    adapter: ShopAdapter, fetcher: Fetcher, categories: list[int], max_pages: int | None
+    adapter: ShopAdapter,
+    fetcher: Fetcher,
+    categories: list[int],
+    max_pages: int | None,
+    unknown_images: list[str] | None = None,
 ) -> tuple[list[ScrapedProduct], int, int]:
     """카테고리·페이지를 순차 수집해 (상품, 파싱 실패 수, 요청 오류 수)를 돌려준다."""
     products: list[ScrapedProduct] = []
     failed = errors = 0
     for cate in categories:
         got = 0
-        page, last_page = 1, 1
-        while page <= last_page and (max_pages is None or page <= max_pages):
-            try:
-                html = fetcher.get_text(adapter.list_url(cate, page))
-            except httpx.HTTPError as e:
-                log.error("카테고리 %d 페이지 %d 요청 실패, 이 카테고리 중단: %s", cate, page, e)
-                errors += 1
-                break
-            parsed = adapter.parse_list(html, cate)
-            if page == 1:
-                last_page = parsed.last_page
-            failed += parsed.failed
-            products.extend(parsed.products)
-            got += len(parsed.products)
-            page += 1
+        try:
+            for parsed in iter_pages(adapter, fetcher, cate, max_pages):
+                failed += parsed.failed
+                products.extend(parsed.products)
+                got += len(parsed.products)
+                if unknown_images is not None:
+                    merge_unknown_images(unknown_images, parsed)
+        except (httpx.HTTPError, PageGuardError) as e:
+            log.error("카테고리 %d 수집 중단: %s", cate, e)
+            errors += 1
         print(f"[{cate} {adapter.categories[cate]}] 수집 {got}", file=sys.stderr)
     return products, failed, errors
 
 
-def _required_slugs() -> set[str]:
+def _required_slugs(shop: str) -> set[str]:
     slugs = {slug for slug, _ in rules.CATEGORY_KEYWORDS}
-    return slugs | set(rules.SHOP_CATEGORY_FALLBACK.values())
+    return slugs | set(rules.SHOP_CATEGORY_FALLBACK.get(shop, {}).values())
 
 
 def _candidate(d: dict[str, Any], c: ClassifiedProduct) -> Candidate:
@@ -104,20 +103,42 @@ def _candidate(d: dict[str, Any], c: ClassifiedProduct) -> Candidate:
         name=c.name,
         brand=c.brand,
         category_slug=c.category_slug,
-        image_url=d["image_url"],
+        image_url=d.get("image_url"),
         product_url=d["product_url"],
         price=d["price"],
         sold_out=bool(d["sold_out"]),
     )
 
 
+RAW_ONLY_REASON = "not_promoted_raw_only"
+
+
+def raw_row_status(c: ClassifiedProduct, raw_only: bool) -> tuple[str, float | None, str | None]:
+    """raw_listing의 (match_status, match_score, unmatched_reason).
+
+    raw_only면 분류 결과와 상관없이 UNMATCHED로 두고, 사유는 분류가 UNMATCHED면 그 사유,
+    PROMOTABLE이면 "not_promoted_raw_only"다.
+    """
+    promotable = c.status == PROMOTABLE
+    if raw_only:
+        return "UNMATCHED", None, RAW_ONLY_REASON if promotable else c.unmatched_reason
+    return (
+        "AUTO" if promotable else "UNMATCHED",
+        100.00 if promotable else None,
+        None if promotable else c.unmatched_reason,
+    )
+
+
 def _raw_rows(
-    run_id: int, items: list[tuple[dict[str, Any], ClassifiedProduct]], shipping_fee: int
+    run_id: int,
+    items: list[tuple[dict[str, Any], ClassifiedProduct]],
+    shipping_fee: int,
+    raw_only: bool = False,
 ) -> list[tuple]:
     rows = []
     for d, c in items:
         payload = {**d, "classification": asdict(c)}
-        promotable = c.status == PROMOTABLE
+        status, score, reason = raw_row_status(c, raw_only)
         rows.append(
             (
                 run_id,
@@ -127,9 +148,9 @@ def _raw_rows(
                 shipping_fee,
                 d["product_url"],
                 Jsonb(payload),
-                "AUTO" if promotable else "UNMATCHED",
-                100.00 if promotable else None,
-                None if promotable else c.unmatched_reason,
+                status,
+                score,
+                reason,
             )
         )
     return rows
@@ -143,14 +164,17 @@ def _apply(
     items: list[tuple[dict[str, Any], ClassifiedProduct]],
     shipping_fee: int,
     stats: Stats,
+    raw_only: bool = False,
 ) -> None:
     # a. raw_listing 적재
     cur.executemany(
         "INSERT INTO raw_listing (crawl_run_id, external_id, title, price, shipping_fee, url,"
         " payload, match_status, match_score, unmatched_reason)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        _raw_rows(run_id, items, shipping_fee),
+        _raw_rows(run_id, items, shipping_fee, raw_only),
     )
+    if raw_only:
+        return  # product, offer, price_history는 건드리지 않는다
 
     # b. 승격
     candidates = [_candidate(d, c) for d, c in items if c.status == PROMOTABLE]
@@ -226,7 +250,8 @@ def _apply(
         ],
     )
     cur.executemany(
-        "UPDATE product SET category_id = %s, brand_id = %s, name = %s, image_url = %s"
+        "UPDATE product SET category_id = %s, brand_id = %s, name = %s,"
+        " image_url = COALESCE(%s, image_url)"
         " WHERE id = %s",
         [
             (
@@ -288,10 +313,15 @@ def _mark_failed(conn: psycopg.Connection, run_id: int, message: str) -> None:
     conn.commit()
 
 
-def _print_summary(stats: Stats, run_id: int, elapsed: float) -> None:
+def _print_summary(
+    stats: Stats, run_id: int, elapsed: float, raw_only: bool = False,
+    unknown_images: list[str] | None = None,
+) -> None:
     out = sys.stderr
     print("=== 저장 요약 ===", file=out)
     print(f"crawl_run id: {run_id}", file=out)
+    if raw_only:
+        print("raw-only 모드: 승격 없음", file=out)
     print(f"수집 고유 상품: {stats.unique}개, 승격 대상: {stats.promotable}개", file=out)
     print(f"신규 product/offer: {stats.new}개, 갱신 offer: {stats.updated}개", file=out)
     print(f"price_history 추가: {stats.history_added}건", file=out)
@@ -302,51 +332,68 @@ def _print_summary(stats: Stats, run_id: int, elapsed: float) -> None:
     print(f"UNMATCHED: {sum(stats.unmatched.values())}개 ({reasons})", file=out)
     print(f"raw_listing 정리 삭제: {stats.raw_purged}행", file=out)
     print(f"소요 시간: {elapsed:.1f}초", file=out)
+    if unknown_images is not None:
+        print(format_unknown_images(unknown_images), file=out)
 
 
 def run_save(adapter: ShopAdapter, categories: list[int], args: Any) -> int:
     """종료 코드: 0 성공, 1 실패, 2 이미 실행 중."""
     t0 = time.monotonic()
     try:
-        shipping_fee = shipping_fee_from_env()
+        shipping_fee = shipping_fee_from_env(adapter.shipping_fee_env)
+        # 인증서 누락은 DB 접속 전에 알린다
+        fetcher = Fetcher.for_adapter(adapter, delay=args.delay)
+    except (db.ConfigError, MissingCertificateError) as e:
+        print(f"설정 오류: {e}", file=sys.stderr)
+        return 1
+    try:
         conn = db.connect_from_env()
     except (db.ConfigError, psycopg.Error) as e:
+        fetcher.close()
         print(f"설정/DB 연결 오류: {e}", file=sys.stderr)
         return 1
     try:
-        if not db.try_lock(conn):
+        row = conn.execute("SELECT id FROM seller WHERE code = %s", (adapter.code,)).fetchone()
+        conn.commit()
+        if row is None:
+            print(
+                f"seller '{adapter.code}' 없음. seller 시드(V2/V4) 마이그레이션 확인 필요",
+                file=sys.stderr,
+            )
+            return 1
+        seller_id = row[0]
+        if not db.try_lock(conn, seller_id):
             print("이미 실행 중입니다 (advisory lock 사용 중).", file=sys.stderr)
             return 2
         try:
-            return _run(conn, adapter, categories, args, shipping_fee, t0)
+            return _run(conn, adapter, fetcher, seller_id, categories, args, shipping_fee, t0)
         finally:
             try:
                 conn.rollback()
-                db.unlock(conn)
+                db.unlock(conn, seller_id)
             except psycopg.Error:
                 pass  # 연결이 끊기면 락은 세션 종료와 함께 풀린다
     except psycopg.Error as e:
         print(f"DB 오류: {e}", file=sys.stderr)
         return 1
     finally:
+        fetcher.close()
         conn.close()
 
 
 def _run(
     conn: psycopg.Connection,
     adapter: ShopAdapter,
+    fetcher: Fetcher,
+    seller_id: int,
     categories: list[int],
     args: Any,
     shipping_fee: int,
     t0: float,
 ) -> int:
-    row = conn.execute("SELECT id FROM seller WHERE code = %s", (SELLER_CODE,)).fetchone()
-    if row is None:
-        print(f"seller '{SELLER_CODE}'가 DB에 없습니다. V2 마이그레이션 확인 필요", file=sys.stderr)
-        return 1
-    seller_id = row[0]
+    raw_only = bool(getattr(args, "raw_only", False))
     category_ids = dict(conn.execute("SELECT slug, id FROM category").fetchall())
-    missing = sorted(_required_slugs() - set(category_ids))
+    missing = sorted(_required_slugs(adapter.code) - set(category_ids))
     if missing:
         print(f"DB에 없는 category slug: {missing}. 마이그레이션을 확인하세요.", file=sys.stderr)
         return 1
@@ -361,11 +408,10 @@ def _run(
     partial = bool(args.category) or args.max_pages is not None
     stats = Stats()
     try:
-        fetcher = Fetcher(adapter.allowed_paths, delay=args.delay)
-        try:
-            products, parse_failed, errors = collect(adapter, fetcher, categories, args.max_pages)
-        finally:
-            fetcher.close()
+        unknown_images: list[str] | None = [] if adapter.reports_unknown_images else None
+        products, parse_failed, errors = collect(
+            adapter, fetcher, categories, args.max_pages, unknown_images
+        )
 
         unique = dedupe([p.to_dict() for p in products])
         stats.unique = len(unique)
@@ -390,8 +436,10 @@ def _run(
         stats.unmatched = Counter(c.unmatched_reason for _, c in items if c.status != PROMOTABLE)
 
         with conn.cursor() as cur:
-            _apply(cur, run_id, seller_id, category_ids, items, shipping_fee, stats)
-            if not partial:
+            _apply(
+                cur, run_id, seller_id, category_ids, items, shipping_fee, stats, raw_only
+            )
+            if not partial and not raw_only:
                 stats.expired = _expire(
                     cur, seller_id, started_at - timedelta(days=args.expire_days)
                 )
@@ -410,5 +458,5 @@ def _run(
             log.exception("crawl_run FAILED 기록도 실패")
         return 1
 
-    _print_summary(stats, run_id, time.monotonic() - t0)
+    _print_summary(stats, run_id, time.monotonic() - t0, raw_only, unknown_images)
     return 0

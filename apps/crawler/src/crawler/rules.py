@@ -39,22 +39,45 @@ CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
     ("gloves", ["글러브"]),
 ]
 
-# 골든챔스 category_no -> slug. 이름 키워드로 못 정했을 때만 쓴다.
-# 28, 53은 잡화가 섞여 있어 폴백을 두지 않는다.
-SHOP_CATEGORY_FALLBACK: dict[int, str] = {
-    24: "gloves",
-    74: "shoes",
-    42: "bags",
-    25: "protectors",
-    27: "training",
+DEFAULT_SHOP = "goldenchamps"
+
+# 몰별 category_no -> slug. 이름 키워드로 못 정했을 때만 쓴다.
+# 골든챔스 28, 53은 잡화가 섞여 있어 폴백을 두지 않는다.
+SHOP_CATEGORY_FALLBACK: dict[str, dict[int, str]] = {
+    "goldenchamps": {
+        24: "gloves",
+        74: "shoes",
+        42: "bags",
+        25: "protectors",
+        27: "training",
+    },
+    "boxingmall": {
+        2990: "gloves",
+        2897: "gloves",
+        2981: "bags",
+        2980: "bags",
+        2977: "training",
+        2767: "shoes",
+        2722: "apparel",
+        2791: "apparel",
+        2979: "protectors",
+        2978: "headgear",
+        2852: "training",
+        2851: "training",
+    },
 }
 
 # 액세서리·부가 상품: 승격 제외
 EXCLUDE_KEYWORDS: list[str] = [
-    "키링", "파우치", "가방", "백팩", "타월", "수건", "텀블러", "스티커",
+    "키링", "열쇠고리", "파우치", "가방", "백팩", "타월", "수건", "텀블러", "스티커",
     "마크비", "마킹", "케어", "탈취", "세탁", "컨버터",
     "타올", "키홀더", "트롤리", "스포츠 백",
 ]
 
 # 이름 맨 앞의 대괄호 접두어(예: "[라스트] ")
 NAME_PREFIX_PATTERN = r"^(?:\s*\[[^\]]*\])+\s*"
+
+# 복싱몰 브랜드 칸에서 브랜드 정보가 없다는 뜻의 값(소문자 비교)
+MEANINGLESS_BRAND_VALUES: frozenset[str] = frozenset(
+    {"", "기타", "-", "없음", "브랜드없음", "무브랜드", "공용", "미정"}
+)

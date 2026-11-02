@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 
-# crawler 동시 실행 방지용 advisory lock 키(고정)
+# crawler 동시 실행 방지용 advisory lock 기본 키. 몰마다 따로 잠기도록 seller id를 더해 쓴다
 ADVISORY_LOCK_KEY = 7302024001
 
 
@@ -35,14 +35,18 @@ def connect_from_env() -> psycopg.Connection:
     )
 
 
-def try_lock(conn: psycopg.Connection) -> bool:
-    row = conn.execute("SELECT pg_try_advisory_lock(%s)", (ADVISORY_LOCK_KEY,)).fetchone()
+def lock_key(seller_id: int) -> int:
+    return ADVISORY_LOCK_KEY + seller_id
+
+
+def try_lock(conn: psycopg.Connection, seller_id: int) -> bool:
+    row = conn.execute("SELECT pg_try_advisory_lock(%s)", (lock_key(seller_id),)).fetchone()
     conn.commit()
     return bool(row and row[0])
 
 
-def unlock(conn: psycopg.Connection) -> None:
-    conn.execute("SELECT pg_advisory_unlock(%s)", (ADVISORY_LOCK_KEY,))
+def unlock(conn: psycopg.Connection, seller_id: int) -> None:
+    conn.execute("SELECT pg_advisory_unlock(%s)", (lock_key(seller_id),))
     conn.commit()
 
 
